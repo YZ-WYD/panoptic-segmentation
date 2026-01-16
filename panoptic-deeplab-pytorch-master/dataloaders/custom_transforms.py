@@ -5,6 +5,17 @@ import numpy as np
 from PIL import Image, ImageOps, ImageFilter
 
 
+# 1. 补全 Compose 类
+class Compose(object):
+    def __init__(self, transforms):
+        self.transforms = transforms
+
+    def __call__(self, sample):
+        for t in self.transforms:
+            sample = t(sample)
+        return sample
+
+
 class Normalize(object):
     """Normalize a tensor image with mean and standard deviation.
     Args:
@@ -106,6 +117,7 @@ class RandomHorizontalFlip(object):
             return {"image": img, "label": mask}
 
 
+# 2. 修复 RandomRotate 类 (支持 Panoptic 目标)
 class RandomRotate(object):
     def __init__(self, degree):
         self.degree = degree
@@ -113,9 +125,32 @@ class RandomRotate(object):
     def __call__(self, sample):
         img = sample["image"]
         mask = sample["label"]
+
         rotate_degree = random.uniform(-1 * self.degree, self.degree)
+
+        # 影像使用双线性插值
         img = img.rotate(rotate_degree, Image.BILINEAR)
+        # Mask 使用邻近插值
         mask = mask.rotate(rotate_degree, Image.NEAREST)
+
+        # 如果包含 Panoptic 目标 (center, x_reg, y_reg)，也要一起旋转
+        if "center" in sample.keys():
+            center = sample["center"]
+            x_reg = sample["x_reg"]
+            y_reg = sample["y_reg"]
+
+            # 必须使用 NEAREST，避免回归值被平滑
+            center = center.rotate(rotate_degree, Image.NEAREST)
+            x_reg = x_reg.rotate(rotate_degree, Image.NEAREST)
+            y_reg = y_reg.rotate(rotate_degree, Image.NEAREST)
+
+            return {
+                "image": img,
+                "label": mask,
+                "center": center,
+                "x_reg": x_reg,
+                "y_reg": y_reg,
+            }
 
         return {"image": img, "label": mask}
 

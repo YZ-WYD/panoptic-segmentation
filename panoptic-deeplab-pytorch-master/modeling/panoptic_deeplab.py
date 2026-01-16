@@ -10,12 +10,13 @@ from modeling.sync_batchnorm.batchnorm import SynchronizedBatchNorm2d
 
 class PanopticDeepLab(nn.Module):
     def __init__(
-        self,
-        backbone="resnet",
-        output_stride=16,
-        num_classes=21,
-        sync_bn=True,
-        freeze_bn=False,
+            self,
+            backbone="resnet",
+            output_stride=16,
+            num_classes=21,
+            sync_bn=True,
+            freeze_bn=False,
+            in_channels=3,  # <--- 【修改1】新增参数，默认3，但在训练时我们会传入4
     ):
         super(PanopticDeepLab, self).__init__()
         if backbone == "drn":
@@ -26,7 +27,8 @@ class PanopticDeepLab(nn.Module):
         else:
             BatchNorm = nn.BatchNorm2d
 
-        self.backbone = build_backbone(backbone, output_stride, BatchNorm)
+        # <--- 【修改2】将 in_channels 传给 backbone 构建函数
+        self.backbone = build_backbone(backbone, output_stride, BatchNorm, in_channels=in_channels)
 
         if backbone == "xception_3stage":
             panoptic_out = 128
@@ -181,9 +183,9 @@ class PanopticDeepLab(nn.Module):
                                 yield p
                 else:
                     if (
-                        isinstance(m[1], nn.Conv2d)
-                        or isinstance(m[1], SynchronizedBatchNorm2d)
-                        or isinstance(m[1], nn.BatchNorm2d)
+                            isinstance(m[1], nn.Conv2d)
+                            or isinstance(m[1], SynchronizedBatchNorm2d)
+                            or isinstance(m[1], nn.BatchNorm2d)
                     ):
                         for p in m[1].parameters():
                             if p.requires_grad:
@@ -205,9 +207,9 @@ class PanopticDeepLab(nn.Module):
                                 yield p
                 else:
                     if (
-                        isinstance(m[1], nn.Conv2d)
-                        or isinstance(m[1], SynchronizedBatchNorm2d)
-                        or isinstance(m[1], nn.BatchNorm2d)
+                            isinstance(m[1], nn.Conv2d)
+                            or isinstance(m[1], SynchronizedBatchNorm2d)
+                            or isinstance(m[1], nn.BatchNorm2d)
                     ):
                         for p in m[1].parameters():
                             if p.requires_grad:
@@ -215,8 +217,17 @@ class PanopticDeepLab(nn.Module):
 
 
 if __name__ == "__main__":
-    model = DeepLab(backbone="mobilenet", output_stride=16)
+    # 【修改3】修复了类名错误，并增加了4波段测试
+    model = PanopticDeepLab(backbone="resnet", output_stride=16, in_channels=4)
     model.eval()
-    input = torch.rand(1, 3, 513, 513)
+
+    # 模拟一个 4 波段的输入 (Batch=1, Channel=4, Height=513, Width=513)
+    input = torch.rand(1, 4, 513, 513)
     output = model(input)
-    print(output.size())
+
+    print("Output shapes:")
+    print("Semantic:", output[0].size())
+    print("Center:", output[1].size())
+    print("Offset X:", output[2].size())
+    print("Offset Y:", output[3].size())
+    print("PanopticDeepLab 4-Channel Test Passed!")

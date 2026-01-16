@@ -28,6 +28,10 @@ def decode_segmap(label_mask, dataset, plot=False):
     elif dataset == "cityscapes":
         n_classes = 19
         label_colours = get_cityscapes_labels()
+    # 【新增】Forest 数据集的配色分支
+    elif dataset == "forest":
+        n_classes = 7
+        label_colours = get_forest_labels()
     else:
         raise NotImplementedError
 
@@ -61,35 +65,11 @@ def encode_segmap(mask):
     mask = mask.astype(int)
     label_mask = np.zeros((mask.shape[0], mask.shape[1]), dtype=np.int16)
     for ii, label in enumerate(get_pascal_labels()):
-        label_mask[np.where(np.all(mask == label, axis=-1))[:2]] = ii
+        label_mask[
+            np.where(np.all(mask == label, axis=-1))[:2]
+        ] = ii
     label_mask = label_mask.astype(int)
     return label_mask
-
-
-def get_cityscapes_labels():
-    return np.array(
-        [
-            [128, 64, 128],
-            [244, 35, 232],
-            [70, 70, 70],
-            [102, 102, 156],
-            [190, 153, 153],
-            [153, 153, 153],
-            [250, 170, 30],
-            [220, 220, 0],
-            [107, 142, 35],
-            [152, 251, 152],
-            [0, 130, 180],
-            [220, 20, 60],
-            [255, 0, 0],
-            [0, 0, 142],
-            [0, 0, 70],
-            [0, 60, 100],
-            [0, 80, 100],
-            [0, 0, 230],
-            [119, 11, 32],
-        ]
-    )
 
 
 def get_pascal_labels():
@@ -122,3 +102,52 @@ def get_pascal_labels():
             [0, 64, 128],
         ]
     )
+
+
+def get_cityscapes_labels():
+    return np.array(
+        [
+            [128, 64, 128],
+            [244, 35, 232],
+            [70, 70, 70],
+            [102, 102, 156],
+            [190, 153, 153],
+            [153, 153, 153],
+            [250, 170, 30],
+            [220, 220, 0],
+            [107, 142, 35],
+            [152, 251, 152],
+            [70, 130, 180],
+            [220, 20, 60],
+            [255, 0, 0],
+            [0, 0, 142],
+            [0, 0, 70],
+            [0, 60, 100],
+            [0, 80, 100],
+            [0, 0, 230],
+            [119, 11, 32],
+        ]
+    )
+
+# 【新增】Forest 数据集颜色表
+def get_forest_labels():
+    """
+    定义 Forest 数据集的 7 个类别颜色
+    对应:
+    0: vegetation (浅绿)
+    1: bare (棕色)
+    2: impervious (黄色)
+    3: tree_a (深绿)
+    4: tree_b (暗绿)
+    5: tree_c (森林绿)
+    6: tree_d (春绿)
+    """
+    return np.array([
+        [144, 238, 144],
+        [139, 69, 19],
+        [255, 255, 0],
+        [0, 200, 0],
+        [0, 100, 0],
+        [34, 139, 34],
+        [0, 255, 127]
+    ])

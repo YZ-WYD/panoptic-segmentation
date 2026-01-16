@@ -19,6 +19,7 @@ from utils.summaries import TensorboardSummary
 
 torch.cuda.empty_cache()
 
+
 class Trainer(object):
     def __init__(self, args):
         self.args = args
@@ -40,12 +41,16 @@ class Trainer(object):
         ) = make_data_loader(args, **kwargs)
 
         # Define network
+        # 【关键逻辑】自动判断通道数：如果是 forest 数据集，则使用 4 通道
+        in_channels = 4 if args.dataset == 'forest' else 3
+
         model = PanopticDeepLab(
             num_classes=self.nclass,
             backbone=args.backbone,
             output_stride=args.out_stride,
             sync_bn=args.sync_bn,
             freeze_bn=args.freeze_bn,
+            in_channels=in_channels,  # 传入 in_channels 参数
         )
 
         if args.create_params:
@@ -167,7 +172,9 @@ class Trainer(object):
             ) = self.criterion.forward(output, label, center, x_reg, y_reg)
 
             # total loss
-            loss = semantic_loss + center_loss + reg_x_loss + reg_y_loss
+
+            # loss = semantic_loss + center_loss + reg_x_loss + reg_y_loss
+            loss = (1.0 * semantic_loss) + (0.01 * center_loss) + (100.0 * reg_x_loss)+ (100.0 * reg_y_loss)
 
             loss.backward()
             self.optimizer.step()
@@ -216,19 +223,19 @@ class Trainer(object):
             )
 
             # Show 10 * 3 inference results each epoch
-            if i % (num_img_tr // 10) == 0:
-                global_step = i + num_img_tr * epoch
-                self.summary.visualize_image(
-                    self.writer,
-                    self.args.dataset,
-                    image,
-                    label,
-                    output[0],
-                    global_step,
-                    centers=output[1],
-                    reg_x=output[2],
-                    reg_y=output[3],
-                )
+            # if i % (num_img_tr // 10) == 0:
+            #     global_step = i + num_img_tr * epoch
+            #     self.summary.visualize_image(
+            #         self.writer,
+            #         self.args.dataset,
+            #         image,
+            #         label,
+            #         output[0],
+            #         global_step,
+            #         centers=output[1],
+            #         reg_x=output[2],
+            #         reg_y=output[3],
+            #     )
 
         self.writer.add_scalar("train/total_loss_epoch", train_loss, epoch)
         print(
@@ -236,6 +243,25 @@ class Trainer(object):
             % (epoch, i * self.args.batch_size + image.data.shape[0])
         )
         print("Loss: %.3f" % train_loss)
+
+        # 【功能增加】每20个epoch强制保存一次权重
+        if (epoch + 1) % 20 == 0:
+            print(f"=> Saving checkpoint at epoch {epoch + 1}...")
+            if self.args.cuda:
+                state_dict = self.model.module.state_dict()
+            else:
+                state_dict = self.model.state_dict()
+
+            self.saver.save_checkpoint(
+                {
+                    "epoch": epoch + 1,
+                    "state_dict": state_dict,
+                    "optimizer": self.optimizer.state_dict(),
+                    "best_pred": self.best_pred,
+                },
+                is_best=False,
+                filename=f'checkpoint_epoch_{epoch + 1}.pth.tar'
+            )
 
         if self.args.no_val:
             # save checkpoint every epoch
@@ -340,8 +366,8 @@ def main():
     parser.add_argument(
         "--backbone",
         type=str,
-        default="resnet",
-        choices=["xception_3stage", "mobilenet_3stage", "resnet_3stage"],
+        default="resnet_3stage",
+        choices=["xception_3stage", "mobilenet_3stage", "resnet_3stage", "resnet"],
         help="backbone name (default: resnet)",
     )
     parser.add_argument(
@@ -350,12 +376,21 @@ def main():
         default=16,
         help="network output stride (default: 8)",
     )
+    # 【修改1：默认数据集改为 forest】
     parser.add_argument(
         "--dataset",
         type=str,
-        default="pascal",
-        choices=["pascal", "coco", "cityscapes"],
+        default="forest",
+        choices=["pascal", "coco", "cityscapes", "forest"],
         help="dataset name (default: pascal)",
+    )
+    # 【修改2：设置 forest 数据集默认路径】
+    parser.add_argument(
+        "--base-dir",
+        type=str,
+        # 这里填入你的绝对路径
+        default=r"D:\yz\1_yz\panoptic-deeplab-pytorch-master\datasets\my_forest_panoptic_v12_4band",
+        help="base directory for dataset (required for forest)",
     )
     parser.add_argument(
         "--task",
@@ -373,15 +408,16 @@ def main():
     parser.add_argument(
         "--workers",
         type=int,
-        default=4,
+        default=0,
         metavar="N",
         help="dataloader threads",
     )
+    # 【修改3：尺寸改为 512】
     parser.add_argument(
-        "--base-size", type=int, default=513, help="base image size"
+        "--base-size", type=int, default=448, help="base image size"
     )
     parser.add_argument(
-        "--crop-size", type=int, default=513, help="crop image size"
+        "--crop-size", type=int, default=448, help="crop image size"
     )
     parser.add_argument(
         "--sync-bn",
@@ -423,7 +459,7 @@ def main():
         default=None,
         metavar="N",
         help="input batch size for \
-                                training (default: auto)",
+                                training (default: 1)",
     )
     parser.add_argument(
         "--test-batch-size",
@@ -431,7 +467,7 @@ def main():
         default=None,
         metavar="N",
         help="input batch size for \
-                                testing (default: auto)",
+                                testing (default: 1)",
     )
     parser.add_argument(
         "--use-balanced-weights",
@@ -560,6 +596,7 @@ def main():
             "coco": 30,
             "cityscapes": 200,
             "pascal": 50,
+            "forest": 100,  # 【修改4：设置forest epoch】
         }
         args.epochs = epoches[args.dataset.lower()]
 
@@ -574,11 +611,12 @@ def main():
             "coco": 0.1,
             "cityscapes": 0.01,
             "pascal": 0.007,
+            "forest": 0.001,  # 【修改5：设置forest lr】
         }
         args.lr = (
-            lrs[args.dataset.lower()]
-            / (4 * len(args.gpu_ids))
-            * args.batch_size
+                lrs[args.dataset.lower()]
+                / (4 * len(args.gpu_ids))
+                * args.batch_size
         )
 
     if args.checkname is None:
@@ -591,7 +629,7 @@ def main():
     for epoch in range(trainer.args.start_epoch, trainer.args.epochs):
         trainer.training(epoch)
         if not trainer.args.no_val and epoch % args.eval_interval == (
-            args.eval_interval - 1
+                args.eval_interval - 1
         ):
             trainer.validation(epoch)
             trainer.scheduler.step(trainer.best_pred)
